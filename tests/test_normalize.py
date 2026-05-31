@@ -1,13 +1,22 @@
 import pandas as pd
 
-from app.ingestion.normalize import fingerprint, normalize_frame, normalize_genre, normalize_state
+from app.ingestion.normalize import (
+    fingerprint,
+    normalize_frame,
+    normalize_genre,
+    normalize_market,
+    normalize_state,
+)
 
 
 def test_normalize_state_and_genre_aliases() -> None:
     assert normalize_state("California") == "CA"
     assert normalize_state(" tx ") == "TX"
+    assert normalize_state("New York") == "NY"
     assert normalize_genre("alt rock") == "Alternative"
     assert normalize_genre("Rhythm and Blues") == "R&B"
+    assert normalize_market("denver, co", "Denver", "Colorado") == "Denver, CO"
+    assert normalize_market("Denver", "Denver", "Colorado") == "Denver, CO"
 
 
 def test_fingerprint_ignores_case_spacing_and_punctuation() -> None:

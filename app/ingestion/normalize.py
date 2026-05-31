@@ -96,7 +96,7 @@ def normalize_state(value: Any) -> Optional[str]:
     compact = re.sub(r"[^A-Za-z]", "", text).upper()
     if len(compact) == 2:
         return compact
-    return STATE_ALIASES.get(compact)
+    return STATE_ALIASES.get(compact) or STATE_ALIASES.get(text.upper())
 
 
 def normalize_country(value: Any) -> str:
@@ -119,11 +119,20 @@ def normalize_genre(value: Any) -> Optional[str]:
 
 
 def normalize_market(market: Any, city: Any, state: Any) -> Optional[str]:
-    market_text = normalize_display_name(market)
+    state_text = normalize_state(state)
+    raw_market = clean_text(market)
+    if raw_market and "," in raw_market:
+        market_city, market_state = raw_market.rsplit(",", 1)
+        city_text = normalize_display_name(market_city)
+        state_text = normalize_state(market_state) or state_text
+        if city_text and state_text:
+            return f"{city_text}, {state_text}"
+    market_text = normalize_display_name(raw_market)
+    if market_text and state_text:
+        return f"{market_text}, {state_text}"
     if market_text:
         return market_text
     city_text = normalize_display_name(city)
-    state_text = normalize_state(state)
     if city_text and state_text:
         return f"{city_text}, {state_text}"
     return city_text

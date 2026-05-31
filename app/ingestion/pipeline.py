@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 import pandas as pd
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 
 from app.config import get_settings
@@ -95,6 +96,7 @@ def _insert_frame(connection: Any, frame: pd.DataFrame, table_name: str, chunk_s
     if frame.empty:
         return 0
     sql_frame = dataframe_for_sql(frame)
+    dtype = {"run_id": UUID(as_uuid=True)} if "run_id" in sql_frame.columns else None
     sql_frame.to_sql(
         table_name,
         connection,
@@ -102,6 +104,7 @@ def _insert_frame(connection: Any, frame: pd.DataFrame, table_name: str, chunk_s
         index=False,
         method="multi",
         chunksize=chunk_size,
+        dtype=dtype,
     )
     return len(sql_frame)
 
@@ -260,12 +263,12 @@ def load_csv(
             clean_frame = normalize_frame(chunk, source_name=resolved_source)
             issue_frame, quality_scores = validate_frame(clean_frame)
             clean_frame["quality_score"] = quality_scores
-            clean_frame["run_id"] = str(run_id)
+            clean_frame["run_id"] = run_id
 
             if issue_frame.empty:
                 issue_frame = pd.DataFrame(columns=ISSUE_COLUMNS)
             else:
-                issue_frame["run_id"] = str(run_id)
+                issue_frame["run_id"] = run_id
                 issue_frame = issue_frame[ISSUE_COLUMNS]
 
             event_frame = clean_frame[EVENT_COLUMNS]
