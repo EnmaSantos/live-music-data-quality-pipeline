@@ -6,6 +6,10 @@ The project is built to demonstrate the work behind this resume claim:
 
 > Built a live-music data quality pipeline using Python, Pandas, PostgreSQL, FastAPI, Docker, and AWS deployment patterns to ingest, clean, validate, and monitor 100k+ artist, venue, and event records from API/CSV sources.
 
+## Featured Analysis
+
+The pipeline has also been run against a five-market Ticketmaster sample covering Denver, Austin, Nashville, New York, and Los Angeles. See [docs/live-music-market-quality-report.md](docs/live-music-market-quality-report.md) for the portfolio-ready report, including market comparisons, data-quality findings, venue concentration, genre trends, and recommendations.
+
 ## Architecture
 
 ```mermaid
