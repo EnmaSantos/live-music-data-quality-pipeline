@@ -57,6 +57,12 @@ docker compose run --rm app python -m app.ingestion.generate_mock_data --rows 10
 docker compose run --rm app python -m app.ingestion.pipeline --input data/raw/mock_events.csv --replace
 ```
 
+Or pull real music events from Ticketmaster after adding `TICKETMASTER_API_KEY` to a local `.env` file:
+
+```bash
+docker compose run --rm app python -m app.ingestion.ticketmaster --city Denver --state CO --pages 2 --output data/raw/ticketmaster_denver.csv --load --replace
+```
+
 Open the dashboard and API:
 
 - Dashboard: http://localhost:8501
@@ -124,6 +130,20 @@ Ingest in chunks:
 
 ```bash
 python -m app.ingestion.pipeline --input data/raw/mock_events.csv --chunk-size 10000 --replace
+```
+
+Fetch real Ticketmaster music events to CSV:
+
+```bash
+TICKETMASTER_API_KEY=your-key \
+python -m app.ingestion.ticketmaster --city Denver --state CO --pages 2 --output data/raw/ticketmaster_denver.csv
+```
+
+Fetch and load directly into PostgreSQL:
+
+```bash
+TICKETMASTER_API_KEY=your-key \
+python -m app.ingestion.ticketmaster --city Denver --state CO --pages 2 --output data/raw/ticketmaster_denver.csv --load --replace
 ```
 
 Set a custom database:
