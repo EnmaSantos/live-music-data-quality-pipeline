@@ -43,3 +43,26 @@ def test_data_quality_report_shape(monkeypatch) -> None:
     assert body["score_by_source"][0]["source"] == "ticketmaster_csv"
     assert body["top_issues"][0]["issue_type"] == "missing_venue_capacity"
     assert body["recent_ingestion_runs"][0]["status"] == "completed"
+
+
+def test_artist_search_report_shape(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "fetch_all",
+        lambda query, params=None: [
+            {
+                "source": "ticketmaster_artist_gracie_abrams",
+                "searched_artist": "Gracie Abrams",
+                "loaded_events": 33,
+                "avg_quality_score": 89.39,
+            }
+        ],
+    )
+
+    client = TestClient(main.app)
+    response = client.get("/artists/search-report")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["artist_searches"][0]["searched_artist"] == "Gracie Abrams"

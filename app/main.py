@@ -128,6 +128,29 @@ def artist_duplicates(
     return {"count": len(rows), "artists": rows}
 
 
+@app.get("/artists/search-report")
+def artist_search_report(
+    limit: int = Query(default=settings.api_default_limit, ge=1, le=500),
+) -> dict[str, object]:
+    try:
+        rows = fetch_all(
+            """
+            SELECT *
+            FROM vw_artist_search_quality
+            ORDER BY loaded_events DESC, searched_artist
+            LIMIT :limit
+            """,
+            {"limit": limit},
+        )
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not fetch artist search report: {exc}",
+        ) from exc
+
+    return {"count": len(rows), "artist_searches": rows}
+
+
 @app.get("/markets/top")
 def top_markets(
     limit: int = Query(default=settings.api_default_limit, ge=1, le=500),

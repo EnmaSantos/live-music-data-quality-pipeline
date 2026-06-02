@@ -18,6 +18,28 @@ load_dotenv()
 
 DISCOVERY_EVENTS_URL = "https://app.ticketmaster.com/discovery/v2/events.json"
 SOURCE_NAME = "ticketmaster_api"
+RAW_EVENT_COLUMNS = [
+    "source",
+    "event_id",
+    "event_name",
+    "event_date",
+    "artist_id",
+    "artist_name",
+    "genre",
+    "venue_id",
+    "venue_name",
+    "venue_capacity",
+    "address",
+    "city",
+    "state",
+    "country",
+    "latitude",
+    "longitude",
+    "market",
+    "dma_code",
+    "ticket_demand_score",
+    "airplay_spins",
+]
 
 
 def _first(items: list[dict[str, Any]] | None) -> dict[str, Any]:
@@ -59,7 +81,7 @@ def _venue_for_event(event: dict[str, Any]) -> dict[str, Any]:
     return _first(_nested(event, "_embedded", "venues"))
 
 
-def event_to_row(event: dict[str, Any]) -> dict[str, Any]:
+def event_to_row(event: dict[str, Any], source_name: str = SOURCE_NAME) -> dict[str, Any]:
     artist = _artist_for_event(event)
     venue = _venue_for_event(event)
     city = _nested(venue, "city", "name")
@@ -73,7 +95,7 @@ def event_to_row(event: dict[str, Any]) -> dict[str, Any]:
     )
 
     return {
-        "source": SOURCE_NAME,
+        "source": source_name,
         "event_id": event.get("id"),
         "event_name": event.get("name"),
         "event_date": _nested(event, "dates", "start", "localDate")
@@ -101,9 +123,11 @@ def fetch_events(
     api_key: str,
     city: str | None = None,
     state: str | None = None,
+    keyword: str | None = None,
     country: str = "US",
     pages: int = 1,
     size: int = 200,
+    source_name: str = SOURCE_NAME,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     page_size = min(max(size, 1), 200)
@@ -121,6 +145,8 @@ def fetch_events(
             params["city"] = city
         if state:
             params["stateCode"] = state
+        if keyword:
+            params["keyword"] = keyword
 
         url = f"{DISCOVERY_EVENTS_URL}?{urlencode(params)}"
         request = Request(url, headers={"Accept": "application/json"})
@@ -135,7 +161,7 @@ def fetch_events(
             raise RuntimeError(f"Could not reach Ticketmaster API: {exc.reason}") from exc
 
         events = _nested(payload, "_embedded", "events") or []
-        rows.extend(event_to_row(event) for event in events)
+        rows.extend(event_to_row(event, source_name=source_name) for event in events)
 
         page_info = payload.get("page") or {}
         total_pages = page_info.get("totalPages")
@@ -149,17 +175,19 @@ def fetch_events(
 
 def write_events_csv(rows: list[dict[str, Any]], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(output_path, index=False)
+    pd.DataFrame(rows, columns=RAW_EVENT_COLUMNS).to_csv(output_path, index=False)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch real music events from Ticketmaster.")
     parser.add_argument("--api-key", default=os.getenv("TICKETMASTER_API_KEY"))
-    parser.add_argument("--city", default="Denver")
-    parser.add_argument("--state", default="CO")
+    parser.add_argument("--city", default=None)
+    parser.add_argument("--state", default=None)
+    parser.add_argument("--keyword", default=None, help="Search keyword, such as an artist name.")
     parser.add_argument("--country", default="US")
     parser.add_argument("--pages", type=int, default=1)
     parser.add_argument("--size", type=int, default=200)
+    parser.add_argument("--source-name", default=SOURCE_NAME)
     parser.add_argument("--output", type=Path, default=Path("data/raw/ticketmaster_events.csv"))
     parser.add_argument("--load", action="store_true", help="Load the fetched CSV into PostgreSQL.")
     parser.add_argument("--replace", action="store_true", help="Replace existing loaded data.")
@@ -175,15 +203,17 @@ def main() -> None:
         api_key=args.api_key,
         city=args.city,
         state=args.state,
+        keyword=args.keyword,
         country=args.country,
         pages=args.pages,
         size=args.size,
+        source_name=args.source_name,
     )
     write_events_csv(rows, args.output)
     print(f"Wrote {len(rows):,} Ticketmaster events to {args.output}")
 
     if args.load:
-        result = load_csv(args.output, source_name=SOURCE_NAME, replace=args.replace)
+        result = load_csv(args.output, source_name=args.source_name, replace=args.replace)
         print(result)
 
 

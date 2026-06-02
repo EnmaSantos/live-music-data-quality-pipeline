@@ -85,6 +85,32 @@ def get_artist_duplicates() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=30)
+def get_artist_search_report() -> pd.DataFrame:
+    return _as_frame(
+        fetch_all(
+            """
+            SELECT
+                searched_artist,
+                api_rows,
+                loaded_events,
+                unique_artists,
+                unique_venues,
+                first_event_date,
+                last_event_date,
+                avg_quality_score,
+                issue_count,
+                error_count,
+                warning_count,
+                top_returned_artist,
+                top_returned_artist_events
+            FROM vw_artist_search_quality
+            ORDER BY loaded_events DESC, searched_artist
+            """
+        )
+    )
+
+
+@st.cache_data(ttl=30)
 def get_top_markets() -> pd.DataFrame:
     return _as_frame(
         fetch_all(
@@ -172,6 +198,7 @@ def render_dashboard() -> None:
     top_issues = get_top_issues()
     venue_issues = get_venue_issues()
     artist_duplicates = get_artist_duplicates()
+    artist_search_report = get_artist_search_report()
     top_markets = get_top_markets()
     recent_runs = get_recent_runs()
 
@@ -211,6 +238,13 @@ def render_dashboard() -> None:
         st.success("No duplicate artist candidates found.")
     else:
         st.dataframe(artist_duplicates, width="stretch", hide_index=True)
+
+    st.subheader("Artist Search Quality")
+    if artist_search_report.empty:
+        st.info("No artist search pulls found.")
+    else:
+        st.bar_chart(artist_search_report.set_index("searched_artist")["loaded_events"])
+        st.dataframe(artist_search_report, width="stretch", hide_index=True)
 
     st.subheader("Recent Ingestion Runs")
     if recent_runs.empty:

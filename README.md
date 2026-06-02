@@ -10,6 +10,8 @@ The project is built to demonstrate the work behind this resume claim:
 
 The pipeline has also been run against a five-market Ticketmaster sample covering Denver, Austin, Nashville, New York, and Los Angeles. See [docs/live-music-market-quality-report.md](docs/live-music-market-quality-report.md) for the portfolio-ready report, including market comparisons, data-quality findings, venue concentration, genre trends, and recommendations.
 
+It also supports artist-level Ticketmaster keyword pulls. See [docs/live-music-artist-search-report.md](docs/live-music-artist-search-report.md) for an artist-search quality analysis covering Sabrina Carpenter, Gracie Abrams, Taylor Swift, girl in red, Kendrick Lamar, and Bad Bunny.
+
 ## Architecture
 
 ```mermaid
@@ -67,6 +69,12 @@ Or pull real music events from Ticketmaster after adding `TICKETMASTER_API_KEY` 
 docker compose run --rm app python -m app.ingestion.ticketmaster --city Denver --state CO --pages 2 --output data/raw/ticketmaster_denver.csv --load --replace
 ```
 
+Pull artist-level Ticketmaster keyword results:
+
+```bash
+docker compose run --rm app python -m app.ingestion.ticketmaster --keyword "Gracie Abrams" --country US --pages 3 --size 200 --source-name ticketmaster_artist_gracie_abrams --output data/raw/ticketmaster_artist_gracie_abrams.csv --load
+```
+
 Open the dashboard and API:
 
 - Dashboard: http://localhost:8501
@@ -74,6 +82,7 @@ Open the dashboard and API:
 - Data quality report: http://localhost:8000/data-quality-report
 - Venue issues: http://localhost:8000/venues/issues
 - Artist duplicates: http://localhost:8000/artists/duplicates
+- Artist search report: http://localhost:8000/artists/search-report
 - Top markets: http://localhost:8000/markets/top
 - Interactive docs: http://localhost:8000/docs
 
