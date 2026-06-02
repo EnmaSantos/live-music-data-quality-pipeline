@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import Integer, Numeric, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.engine import Engine
 
@@ -96,7 +96,15 @@ def _insert_frame(connection: Any, frame: pd.DataFrame, table_name: str, chunk_s
     if frame.empty:
         return 0
     sql_frame = dataframe_for_sql(frame)
-    dtype = {"run_id": UUID(as_uuid=True)} if "run_id" in sql_frame.columns else None
+    dtype: dict[str, Any] = {}
+    if "run_id" in sql_frame.columns:
+        dtype["run_id"] = UUID(as_uuid=True)
+    for column in ("venue_capacity", "airplay_spins"):
+        if column in sql_frame.columns:
+            dtype[column] = Integer()
+    for column in ("latitude", "longitude", "ticket_demand_score"):
+        if column in sql_frame.columns:
+            dtype[column] = Numeric()
     sql_frame.to_sql(
         table_name,
         connection,
@@ -104,7 +112,7 @@ def _insert_frame(connection: Any, frame: pd.DataFrame, table_name: str, chunk_s
         index=False,
         method="multi",
         chunksize=chunk_size,
-        dtype=dtype,
+        dtype=dtype or None,
     )
     return len(sql_frame)
 

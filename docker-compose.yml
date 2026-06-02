@@ -19,6 +19,7 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql+psycopg://live_music:live_music@db:5432/live_music
+      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
     ports:
       - "8000:8000"
     volumes:
@@ -32,6 +33,7 @@ services:
     build: .
     environment:
       DATABASE_URL: postgresql+psycopg://live_music:live_music@db:5432/live_music
+      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
     ports:
       - "8501:8501"
     volumes:

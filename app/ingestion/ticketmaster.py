@@ -10,8 +10,11 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pandas as pd
+from dotenv import load_dotenv
 
 from app.ingestion.pipeline import load_csv
+
+load_dotenv()
 
 DISCOVERY_EVENTS_URL = "https://app.ticketmaster.com/discovery/v2/events.json"
 SOURCE_NAME = "ticketmaster_api"
