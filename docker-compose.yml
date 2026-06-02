@@ -28,5 +28,18 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  dashboard:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://live_music:live_music@db:5432/live_music
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: streamlit run app/dashboard.py --server.address 0.0.0.0 --server.port 8501
+
 volumes:
   postgres_data:

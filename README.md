@@ -1,6 +1,6 @@
 # Live Music Data Quality Pipeline
 
-A portfolio-ready data engineering project that ingests messy live-music event, venue, artist, and market data; normalizes it with Python and Pandas; validates quality rules; loads clean records into PostgreSQL; and exposes monitoring endpoints through FastAPI.
+A portfolio-ready data engineering project that ingests messy live-music event, venue, artist, and market data; normalizes it with Python and Pandas; validates quality rules; loads clean records into PostgreSQL; and exposes monitoring through a FastAPI API and Streamlit dashboard.
 
 The project is built to demonstrate the work behind this resume claim:
 
@@ -16,7 +16,8 @@ flowchart LR
     C --> E["PostgreSQL data quality issue table"]
     D --> F["SQL quality views"]
     E --> F
-    F --> G["FastAPI dashboard/API endpoints"]
+    F --> G["FastAPI API endpoints"]
+    F --> H["Streamlit dashboard"]
 ```
 
 ## What It Checks
@@ -36,13 +37,14 @@ flowchart LR
 - PostgreSQL
 - SQLAlchemy and psycopg
 - FastAPI
+- Streamlit
 - Docker and Docker Compose
 - GitHub Actions
 - AWS RDS/EC2 deployment guide
 
 ## Quickstart With Docker
 
-Start PostgreSQL and the FastAPI app:
+Start PostgreSQL, the FastAPI app, and the Streamlit dashboard:
 
 ```bash
 docker compose up --build
@@ -55,8 +57,9 @@ docker compose run --rm app python -m app.ingestion.generate_mock_data --rows 10
 docker compose run --rm app python -m app.ingestion.pipeline --input data/raw/mock_events.csv --replace
 ```
 
-Open the API:
+Open the dashboard and API:
 
+- Dashboard: http://localhost:8501
 - Health: http://localhost:8000/health
 - Data quality report: http://localhost:8000/data-quality-report
 - Venue issues: http://localhost:8000/venues/issues
@@ -89,6 +92,12 @@ Start FastAPI:
 
 ```bash
 uvicorn app.main:app --reload
+```
+
+Start the Streamlit dashboard:
+
+```bash
+streamlit run app/dashboard.py
 ```
 
 Run tests:
