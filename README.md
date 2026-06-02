@@ -8,6 +8,8 @@ The project is built to demonstrate the work behind this resume claim:
 
 ## Featured Analysis
 
+For a polished report format, see the Quarto findings document at [docs/live-music-findings.qmd](docs/live-music-findings.qmd).
+
 The pipeline has also been run against a five-market Ticketmaster sample covering Denver, Austin, Nashville, New York, and Los Angeles. See [docs/live-music-market-quality-report.md](docs/live-music-market-quality-report.md) for the portfolio-ready report, including market comparisons, data-quality findings, venue concentration, genre trends, and recommendations.
 
 It also supports artist-level Ticketmaster keyword pulls. See [docs/live-music-artist-search-report.md](docs/live-music-artist-search-report.md) for an artist-search quality analysis covering Sabrina Carpenter, Gracie Abrams, Taylor Swift, girl in red, Kendrick Lamar, and Bad Bunny.
@@ -125,6 +127,12 @@ Run tests:
 pytest
 ```
 
+Render the Quarto findings report if Quarto is installed:
+
+```bash
+quarto render docs/live-music-findings.qmd
+```
+
 ## Ingestion Commands
 
 Use the included small fixture:
@@ -175,6 +183,7 @@ The pipeline creates these PostgreSQL views:
 - `vw_duplicate_artist_candidates`
 - `vw_duplicate_venue_candidates`
 - `vw_data_quality_score_by_source`
+- `vw_artist_search_quality`
 
 They are designed to support API responses, dashboard cards, and ad hoc SQL analysis.
 
@@ -186,6 +195,7 @@ They are designed to support API responses, dashboard cards, and ad hoc SQL anal
 | `GET /data-quality-report` | Source-level quality scores, top issue types, and recent ingestion runs |
 | `GET /venues/issues` | Venues with missing capacity or coordinate problems |
 | `GET /artists/duplicates` | Artist records that appear duplicated after normalization |
+| `GET /artists/search-report` | Artist keyword search quality and returned-event summaries |
 | `GET /markets/top` | Top markets by event count |
 
 ## AWS Deployment

@@ -1,0 +1,144 @@
+---
+title: "Live Music Data Quality Findings"
+subtitle: "Market coverage, artist search quality, and cleanup priorities"
+author: "Enmanuel De los Santos Cruz"
+date: "2026-06-02"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    theme: cosmo
+    embed-resources: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Executive Readout
+
+This project ingests live-music data from Ticketmaster, normalizes messy event, artist,
+venue, and market fields, loads the cleaned records into PostgreSQL, and exposes data
+health checks through FastAPI and a Streamlit dashboard.
+
+The strongest business finding is that Ticketmaster works well as an event source, but it
+does not provide complete venue and artist context on its own. Venue capacity is missing
+for every loaded event, and artist keyword search can return tribute shows, themed dance
+nights, unrelated keyword matches, or zero results.
+
+::: {.callout-important}
+The pipeline is useful because it does more than collect events. It shows which records
+are trustworthy, which fields need enrichment, and where source data can mislead a
+business user.
+:::
+
+## Data Snapshot
+
+| Metric | Result |
+| --- | ---: |
+| Events loaded | 2,799 |
+| Unique artists | 1,220 |
+| Unique venues | 215 |
+| Average data health score | 84.22 |
+| Market pulls | 5 |
+| Artist search pulls | 6 |
+
+## What The Pipeline Checks
+
+| Check | Why It Matters |
+| --- | --- |
+| Missing venue capacity | Capacity is needed for market sizing and demand analysis. |
+| Missing artist name | Artist-level reporting breaks when the attraction field is empty. |
+| Invalid coordinates | Mapping and market assignment can be wrong without usable coordinates. |
+| Possible duplicate artists | Duplicate artist IDs can inflate counts and fragment reporting. |
+| Possible duplicate venues | Duplicate venue IDs can hide true venue activity. |
+| Market/state issues | Multi-region market labels can create confusing city/state summaries. |
+
+## Market Pull Results
+
+The first analysis pulled five U.S. live-music markets from Ticketmaster: Denver, Austin,
+Nashville, New York, and Los Angeles.
+
+| Market | Events | Artists | Venues | Data Health Score | Issues Per Event | Date Range |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Austin, TX | 328 | 279 | 25 | 89.16 | 1.06 | 2026-06-02 to 2027-05-14 |
+| Los Angeles, CA | 600 | 405 | 47 | 86.98 | 1.13 | 2026-06-02 to 2026-08-25 |
+| Denver, CO | 600 | 409 | 35 | 85.17 | 1.20 | 2026-06-02 to 2026-10-17 |
+| Nashville, TN | 600 | 200 | 23 | 81.00 | 1.37 | 2026-06-02 to 2026-08-29 |
+| New York, NY | 600 | 223 | 42 | 80.88 | 1.37 | 2026-06-01 to 2026-07-02 |
+
+Austin had the cleanest sample, with the highest average data health score and the
+fewest issues per event. Nashville and New York had lower scores because missing artist
+names were more common in those pulls.
+
+## Data Quality Findings
+
+| Data Problem | Priority | Records Flagged | Interpretation |
+| --- | --- | ---: | --- |
+| Venue capacity missing | Warning | 2,799 | Ticketmaster event records do not include capacity, so venues need enrichment from a reference source. |
+| Artist name missing | Error | 640 | Some events do not include a clean artist or attraction name. |
+| Possible duplicate venue | Warning | 22 | Multiple source venue IDs normalize to the same venue fingerprint. |
+| Market/state needs review | Warning | 11 | Some multi-region market labels do not map cleanly to one state. |
+| Possible duplicate artist | Warning | 6 | Multiple source artist IDs normalize to the same artist fingerprint. |
+| Coordinates need review | Warning | 6 | A small number of venue records have missing or invalid coordinates. |
+
+The biggest enrichment gap is venue capacity. This is not a one-off data-entry problem;
+it is a source limitation that appears across every market and artist pull.
+
+## Artist Search Results
+
+The second analysis used Ticketmaster keyword search for six artists: Sabrina Carpenter,
+Gracie Abrams, Taylor Swift, girl in red, Kendrick Lamar, and Bad Bunny.
+
+| Search | Rows Returned | Events Found | Artists | Venues | Data Health Score | Main Returned Artist |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Gracie Abrams | 33 | 33 | 1 | 14 | 89.39 | Gracie Abrams |
+| Taylor Swift | 31 | 31 | 8 | 28 | 82.58 | Taylorville - A Tribute To Taylor Swift |
+| girl in red | 5 | 5 | 4 | 4 | 88.00 | Lily Allen |
+| Bad Bunny | 1 | 1 | 0 | 1 | 65.00 | Missing artist metadata |
+| Sabrina Carpenter | 1 | 1 | 0 | 1 | 65.00 | Missing artist metadata |
+| Kendrick Lamar | 0 | 0 | 0 | 0 | 0.00 | No current rows returned |
+
+Gracie Abrams was a clean artist match. Taylor Swift returned mostly tribute and
+fan-event listings. girl in red returned ambiguous keyword matches such as Indigo Girls,
+Red Not Chili Peppers, Outside Lands, and Lily Allen. Kendrick Lamar returned zero rows,
+which the pipeline now records as a completed empty pull instead of treating it as a
+failure.
+
+::: {.callout-note}
+Artist keyword search is useful for discovery, but it is not enough for reliable
+artist analytics. A production pipeline should use attraction IDs or an external artist
+reference source for entity matching.
+:::
+
+## Business Recommendations
+
+1. Add a venue reference table with verified capacity, venue type, neighborhood, and
+   latitude/longitude.
+2. Add artist enrichment from MusicBrainz, Spotify, or a curated artist reference file.
+3. Track official artist matches separately from tribute shows, fan parties, and themed
+   events.
+4. Preserve zero-result pulls because they are useful source coverage signals.
+5. Continue storing every ingestion run so data health can be tracked over time.
+
+## Portfolio Summary
+
+This project demonstrates a practical data-quality workflow across APIs, databases, and
+dashboarding. It can ingest real event data, validate important fields, catch duplicate
+candidates, identify enrichment gaps, and translate raw records into business-facing
+monitoring.
+
+Resume-ready phrasing:
+
+> Built a live-music data quality pipeline using Python, Pandas, PostgreSQL, FastAPI,
+> Streamlit, Docker, and Ticketmaster API data to ingest 2,799 event records, identify
+> venue enrichment gaps, flag missing artist metadata, and monitor market and artist
+> search quality through SQL views and a dashboard.
+
+## Rendering
+
+Render this Quarto report with:
+
+```bash
+quarto render docs/live-music-findings.qmd
+```
