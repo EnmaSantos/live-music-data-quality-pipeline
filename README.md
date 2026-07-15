@@ -4,6 +4,14 @@ A data engineering portfolio project for cleaning and monitoring messy live-musi
 
 The project ingests concert/event data, normalizes artist, venue, market, date, genre, and location fields, detects data-quality issues, loads clean records into PostgreSQL, and exposes the results through both an API and a business-friendly dashboard.
 
+## Live Demo
+
+- [Open the live data-quality dashboard](https://live-music-quality-dashboard.onrender.com)
+- [Explore the FastAPI documentation](https://live-music-quality-api.onrender.com/docs)
+- [Check the API health endpoint](https://live-music-quality-api.onrender.com/health)
+
+The services use Render's free tier, so the first request after a period of inactivity may take a moment to start.
+
 ![Live Music Data Health Dashboard](docs/assets/dashboard-data-health.png)
 
 ## What This Project Proves
