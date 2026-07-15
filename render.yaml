@@ -1,0 +1,60 @@
+databases:
+  - name: data-referee-db
+    databaseName: data_referee
+    user: data_referee
+    plan: basic-256mb
+    region: oregon
+
+envVarGroups:
+  - name: data-referee-shared
+    envVars:
+      - key: DATA_REFEREE_API_KEY
+        generateValue: true
+
+services:
+  - type: web
+    name: data-referee-api
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerCommand: python -m app.start
+    healthCheckPath: /health/ready
+    envVars:
+      - fromGroup: data-referee-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: data-referee-db
+          property: connectionString
+      - key: RENDER_SERVICE_NAME
+        value: data-referee-api
+
+  - type: web
+    name: data-referee-app
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerCommand: python -m app.start
+    envVars:
+      - fromGroup: data-referee-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: data-referee-db
+          property: connectionString
+      - key: DATA_REFEREE_API_URL
+        value: http://data-referee-api:10000
+      - key: RENDER_SERVICE_NAME
+        value: data-referee-app
+
+  - type: worker
+    name: data-referee-worker
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerCommand: python -m app.start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: data-referee-db
+          property: connectionString
+      - key: RENDER_SERVICE_NAME
+        value: data-referee-worker

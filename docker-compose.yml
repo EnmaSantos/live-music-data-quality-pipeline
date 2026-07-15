@@ -2,24 +2,24 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_DB: live_music
-      POSTGRES_USER: live_music
-      POSTGRES_PASSWORD: live_music
+      POSTGRES_DB: data_referee
+      POSTGRES_USER: data_referee
+      POSTGRES_PASSWORD: data_referee
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U live_music -d live_music"]
+      test: ["CMD-SHELL", "pg_isready -U data_referee -d data_referee"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  app:
+  api:
     build: .
     environment:
-      DATABASE_URL: postgresql+psycopg://live_music:live_music@db:5432/live_music
-      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
+      DATABASE_URL: postgresql+psycopg://data_referee:data_referee@db:5432/data_referee
+      DATA_REFEREE_API_KEY: ${DATA_REFEREE_API_KEY:-local-development-key}
     ports:
       - "8000:8000"
     volumes:
@@ -27,21 +27,36 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: python -m app.start
 
-  dashboard:
+  app:
     build: .
     environment:
-      DATABASE_URL: postgresql+psycopg://live_music:live_music@db:5432/live_music
-      TICKETMASTER_API_KEY: ${TICKETMASTER_API_KEY:-}
+      DATABASE_URL: postgresql+psycopg://data_referee:data_referee@db:5432/data_referee
+      DATA_REFEREE_API_KEY: ${DATA_REFEREE_API_KEY:-local-development-key}
+      DATA_REFEREE_API_URL: http://api:8000
+      RENDER_SERVICE_NAME: data-referee-app
+      PORT: "8501"
     ports:
       - "8501:8501"
     volumes:
       - .:/app
     depends_on:
+      - api
+      - worker
+    command: python -m app.start
+
+  worker:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://data_referee:data_referee@db:5432/data_referee
+      RENDER_SERVICE_NAME: data-referee-worker
+    volumes:
+      - .:/app
+    depends_on:
       db:
         condition: service_healthy
-    command: streamlit run app/dashboard.py --server.address 0.0.0.0 --server.port 8501
+    command: python -m app.start
 
 volumes:
   postgres_data:

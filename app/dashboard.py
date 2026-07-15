@@ -1,485 +1,277 @@
 from __future__ import annotations
 
+import io
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pandas as pd
 import streamlit as st
-from sqlalchemy.exc import SQLAlchemyError
 
-from app.db import fetch_all, fetch_one, ping_database
-from app.ingestion.pipeline import load_csv
+from app.config import get_settings
 
-SAMPLE_CSV = Path("data/raw/sample_events.csv")
-
-SOURCE_LABELS = {
-    "ticketmaster_api": "Ticketmaster Market Pull",
-    "sample_events": "Sample Data",
-    "ticketmaster_csv": "Ticketmaster CSV",
-    "musicbrainz_api": "MusicBrainz",
-    "venue_partner_feed": "Venue Partner Feed",
-    "airplay_mock": "Airplay Mock",
-}
-
-ISSUE_LABELS = {
-    "missing_venue_capacity": "Venue capacity missing",
-    "missing_artist_name": "Artist name missing",
-    "missing_venue_name": "Venue name missing",
-    "malformed_event_date": "Event date unreadable",
-    "invalid_coordinates": "Coordinates need review",
-    "invalid_state": "Market/state needs review",
-    "duplicate_artist_candidate": "Possible duplicate artist",
-    "duplicate_venue_candidate": "Possible duplicate venue",
-    "duplicate_source_event_id": "Duplicate event ID",
-}
-
-STATUS_LABELS = {
-    "completed": "Completed",
-    "failed": "Failed",
-    "running": "Running",
-}
-
-COLUMN_LABELS = {
-    "source": "Data Source",
-    "source_name": "Data Source",
-    "event_records": "Events",
-    "records_seen": "Rows Found",
-    "records_loaded": "Rows Loaded",
-    "unique_artists": "Artists",
-    "unique_artist_count": "Artists",
-    "unique_venues": "Venues",
-    "unique_venue_count": "Venues",
-    "avg_quality_score": "Data Health Score",
-    "issue_count": "Open Issues",
-    "critical_issues": "Critical Issues",
-    "error_issues": "Errors",
-    "warning_issues": "Warnings",
-    "info_issues": "Notes",
-    "error_count": "Errors",
-    "warning_count": "Warnings",
-    "issue_type": "Issue",
-    "severity": "Priority",
-    "market": "Market",
-    "state": "State",
-    "event_count": "Events",
-    "venue_name": "Venue",
-    "city": "City",
-    "missing_capacity_events": "Events Missing Capacity",
-    "invalid_coordinate_events": "Events With Coordinate Issues",
-    "canonical_artist_name": "Artist",
-    "duplicate_record_count": "Possible Duplicate IDs",
-    "sources": "Found In",
-    "searched_artist": "Search",
-    "api_rows": "Rows Returned",
-    "loaded_events": "Events Found",
-    "first_event_date": "First Event",
-    "last_event_date": "Last Event",
-    "top_returned_artist": "Most Common Returned Artist",
-    "top_returned_artist_events": "Events for Top Match",
-    "started_at": "Started",
-    "finished_at": "Finished",
-    "status": "Status",
-}
-
-DATE_COLUMNS = {
-    "started_at",
-    "finished_at",
-    "last_pulled_at",
-    "first_event_date",
-    "last_event_date",
-}
+settings = get_settings()
+SAMPLE_CSV = Path(__file__).resolve().parents[1] / "data" / "raw" / "sample_events.csv"
+PROFILE_FIELDS = [
+    "event_id",
+    "event_name",
+    "event_date",
+    "artist_name",
+    "venue_name",
+    "venue_capacity",
+    "latitude",
+    "longitude",
+    "market",
+]
 
 
-def _as_frame(rows: list[dict[str, Any]]) -> pd.DataFrame:
-    return pd.DataFrame(rows)
+def api_headers(idempotency: bool = False) -> dict[str, str]:
+    headers = {
+        "X-Data-Referee-Key": settings.data_referee_api_key,
+        "X-Data-Referee-Client": settings.data_referee_client_id,
+    }
+    if idempotency:
+        headers["Idempotency-Key"] = str(uuid.uuid4())
+    return headers
 
 
-def _title_from_token(value: Any) -> str:
-    if value is None or pd.isna(value):
-        return "Unknown"
-    text = str(value).strip().replace("_", " ")
-    return text.title() if text else "Unknown"
+def request(method: str, path: str, **kwargs: Any) -> httpx.Response:
+    with httpx.Client(base_url=settings.data_referee_api_url, timeout=60) as client:
+        response = client.request(method, path, **kwargs)
+    response.raise_for_status()
+    return response
 
 
-def friendly_source(value: Any) -> str:
-    if value is None or pd.isna(value):
-        return "Unknown Source"
-
-    source = str(value)
-    if source.startswith("ticketmaster_artist_"):
-        artist = source.replace("ticketmaster_artist_", "")
-        return f"Artist Search: {_title_from_token(artist)}"
-    return SOURCE_LABELS.get(source, _title_from_token(source))
-
-
-def friendly_issue(value: Any) -> str:
-    if value is None or pd.isna(value):
-        return "Unknown Issue"
-    return ISSUE_LABELS.get(str(value), _title_from_token(value))
+def source_bytes() -> tuple[str, bytes] | None:
+    uploaded = st.file_uploader("CSV dataset", type=["csv"], help="Maximum 25 MB / 250,000 rows")
+    if uploaded:
+        return uploaded.name, uploaded.getvalue()
+    if st.button("Use the bundled live-event sample"):
+        st.session_state["sample_selected"] = True
+    if st.session_state.get("sample_selected"):
+        return SAMPLE_CSV.name, SAMPLE_CSV.read_bytes()
+    return None
 
 
-def friendly_frame(
-    frame: pd.DataFrame,
-    columns: list[str] | None = None,
-) -> pd.DataFrame:
-    display = frame.copy()
-    if columns:
-        display = display[[column for column in columns if column in display.columns]]
-
-    for column in ("source", "source_name"):
-        if column in display.columns:
-            display[column] = display[column].map(friendly_source)
-    if "sources" in display.columns:
-        display["sources"] = display["sources"].map(friendly_sources)
-    if "issue_type" in display.columns:
-        display["issue_type"] = display["issue_type"].map(friendly_issue)
-    if "severity" in display.columns:
-        display["severity"] = display["severity"].map(_title_from_token)
-    if "status" in display.columns:
-        display["status"] = display["status"].map(
-            lambda value: STATUS_LABELS.get(str(value), _title_from_token(value))
-        )
-    for column in DATE_COLUMNS.intersection(display.columns):
-        display[column] = pd.to_datetime(display[column], errors="coerce").dt.strftime("%b %d, %Y")
-        display[column] = display[column].fillna("")
-
-    return display.rename(columns=COLUMN_LABELS)
+def render_profile(profile: dict[str, Any]) -> None:
+    metrics = st.columns(4)
+    metrics[0].metric("Rows", f"{profile['rows']:,}")
+    metrics[1].metric("Columns", profile["columns"])
+    metrics[2].metric("Duplicate rows", profile["duplicate_rows"])
+    metrics[3].metric("Duplicate rate", f"{profile['duplicate_percentage']:.1f}%")
+    st.dataframe(pd.DataFrame(profile["column_profiles"]), width="stretch", hide_index=True)
 
 
-def friendly_sources(value: Any) -> str:
-    if isinstance(value, (list, tuple, set)):
-        return ", ".join(friendly_source(source) for source in value)
-    if value is None or pd.isna(value):
-        return "Unknown Source"
-    return friendly_source(value)
+def render_verdict(summary: dict[str, Any]) -> None:
+    verdict = str(summary.get("verdict") or "processing").replace("_", " ").title()
+    st.subheader(verdict)
+    columns = st.columns(4)
+    columns[0].metric("Overall quality", f"{float(summary.get('overall_score') or 0):.1f}/100")
+    counts = summary.get("classification_counts") or {}
+    columns[1].metric("Accepted", f"{int(counts.get('accepted', 0)):,}")
+    columns[2].metric("Quarantined", f"{int(counts.get('quarantined', 0)):,}")
+    columns[3].metric("Rejected", f"{int(counts.get('rejected', 0)):,}")
+
+    st.markdown("#### Quality dimensions")
+    dimension_frame = pd.DataFrame(
+        [
+            {"dimension": key.replace("_", " ").title(), "score": value}
+            for key, value in (summary.get("dimension_scores") or {}).items()
+        ]
+    )
+    if not dimension_frame.empty:
+        st.bar_chart(dimension_frame.set_index("dimension"))
+
+    eligibility = summary.get("use_case_eligibility") or {}
+    if eligibility:
+        st.markdown("#### Use-case eligibility")
+        for use_case, status in eligibility.items():
+            icon = {"trusted": "✅", "caution": "⚠️", "blocked": "⛔"}.get(status, "•")
+            st.write(f"{icon} **{use_case.replace('_', ' ').title()}** — {status.title()}")
 
 
-@st.cache_data(ttl=30)
-def get_summary() -> dict[str, Any]:
-    return fetch_one(
-        """
-        SELECT
-            COUNT(*)::integer AS event_records,
-            COUNT(DISTINCT artist_fingerprint)::integer AS unique_artists,
-            COUNT(DISTINCT venue_fingerprint)::integer AS unique_venues,
-            COALESCE(ROUND(AVG(quality_score)::numeric, 2), 0) AS avg_quality_score
-        FROM live_music_events
-        """
+def analyze(filename: str, content: bytes, profile_key: str, mapping: dict[str, str]) -> None:
+    dataset_response = request(
+        "POST",
+        "/v1/datasets",
+        headers=api_headers(idempotency=True),
+        json={
+            "name": filename,
+            "source_type": "csv",
+            "retention_hours": 24,
+            "column_mapping": mapping,
+        },
+    )
+    dataset_id = dataset_response.json()["id"]
+    request(
+        "PUT",
+        f"/v1/datasets/{dataset_id}/source-file",
+        headers=api_headers(idempotency=True),
+        files={"file": (filename, content, "text/csv")},
+    )
+    profile = request(
+        "GET", f"/v1/datasets/{dataset_id}/profile", headers=api_headers()
+    ).json()
+    run = request(
+        "POST",
+        f"/v1/datasets/{dataset_id}/quality-runs",
+        headers=api_headers(idempotency=True),
+        json={"profile_key": profile_key, "profile_version": "1.0.0"},
+    ).json()
+    st.session_state.update(
+        dataset_id=dataset_id,
+        quality_run_id=run["id"],
+        dataset_profile=profile,
+        quality_summary=None,
     )
 
 
-@st.cache_data(ttl=30)
-def get_quality_by_source() -> pd.DataFrame:
-    return _as_frame(
-        fetch_all(
-            """
-            SELECT *
-            FROM vw_data_quality_score_by_source
-            ORDER BY avg_quality_score ASC, issue_count DESC
-            """
-        )
+def poll_run(run_id: str, wait_seconds: int = 20) -> dict[str, Any]:
+    deadline = time.monotonic() + wait_seconds
+    status: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        status = request("GET", f"/v1/quality-runs/{run_id}", headers=api_headers()).json()
+        if status["status"] in {"completed", "failed", "dead_letter"}:
+            return status
+        time.sleep(1)
+    return status
+
+
+def main() -> None:
+    st.set_page_config(page_title="Data Referee", page_icon="⚖️", layout="wide")
+    st.title("Data Referee")
+    st.caption("Find out whether your data is trustworthy enough for the job you need to do.")
+    st.warning(
+        "Do not upload personal, medical, financial, confidential, or otherwise sensitive data. "
+        "Public upload details are deleted after 24 hours."
     )
-
-
-@st.cache_data(ttl=30)
-def get_top_issues() -> pd.DataFrame:
-    return _as_frame(
-        fetch_all(
-            """
-            SELECT issue_type, severity, COUNT(*)::integer AS issue_count
-            FROM data_quality_issues
-            GROUP BY issue_type, severity
-            ORDER BY issue_count DESC, issue_type
-            """
-        )
-    )
-
-
-@st.cache_data(ttl=30)
-def get_venue_issues() -> pd.DataFrame:
-    return _as_frame(
-        fetch_all(
-            """
-            SELECT *
-            FROM vw_venues_missing_metadata
-            ORDER BY event_count DESC, venue_name
-            """
-        )
-    )
-
-
-@st.cache_data(ttl=30)
-def get_artist_duplicates() -> pd.DataFrame:
-    return _as_frame(
-        fetch_all(
-            """
-            SELECT *
-            FROM vw_duplicate_artist_candidates
-            ORDER BY duplicate_record_count DESC, event_count DESC, canonical_artist_name
-            """
-        )
-    )
-
-
-@st.cache_data(ttl=30)
-def get_artist_search_report() -> pd.DataFrame:
-    return _as_frame(
-        fetch_all(
-            """
-            SELECT
-                searched_artist,
-                api_rows,
-                loaded_events,
-                unique_artists,
-                unique_venues,
-                first_event_date,
-                last_event_date,
-                avg_quality_score,
-                issue_count,
-                error_count,
-                warning_count,
-                top_returned_artist,
-                top_returned_artist_events
-            FROM vw_artist_search_quality
-            ORDER BY loaded_events DESC, searched_artist
-            """
-        )
-    )
-
-
-@st.cache_data(ttl=30)
-def get_top_markets() -> pd.DataFrame:
-    return _as_frame(
-        fetch_all(
-            """
-            SELECT *
-            FROM vw_top_markets_by_event_count
-            ORDER BY event_count DESC, market
-            """
-        )
-    )
-
-
-@st.cache_data(ttl=30)
-def get_recent_runs() -> pd.DataFrame:
-    return _as_frame(
-        fetch_all(
-            """
-            SELECT
-                id::text AS id,
-                source_name,
-                started_at,
-                finished_at,
-                records_seen,
-                records_loaded,
-                issue_count,
-                status
-            FROM ingestion_runs
-            ORDER BY started_at DESC
-            LIMIT 10
-            """
-        )
-    )
-
-
-def load_sample_data() -> None:
-    load_csv(SAMPLE_CSV, source_name="sample_events", replace=True)
-    st.cache_data.clear()
-
-
-def render_metric_row(summary: dict[str, Any]) -> None:
-    event_records = summary.get("event_records", 0) or 0
-    unique_artists = summary.get("unique_artists", 0) or 0
-    unique_venues = summary.get("unique_venues", 0) or 0
-    avg_quality_score = float(summary.get("avg_quality_score", 0) or 0)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Events Loaded", f"{event_records:,}")
-    col2.metric("Unique Artists", f"{unique_artists:,}")
-    col3.metric("Unique Venues", f"{unique_venues:,}")
-    col4.metric("Avg Data Health Score", f"{avg_quality_score:.1f}")
-
-
-def render_dashboard() -> None:
-    st.set_page_config(
-        page_title="Live Music Data Quality",
-        layout="wide",
-    )
-
-    st.title("Live Music Data Health Dashboard")
-    st.caption("Live event coverage, cleanup priorities, and artist search quality.")
 
     with st.sidebar:
-        st.header("Data Controls")
-        if st.button("Load Sample Data", width="stretch"):
-            with st.spinner("Loading sample data into PostgreSQL..."):
-                load_sample_data()
-            st.success("Sample data loaded.")
-        if st.button("Refresh Dashboard", width="stretch"):
-            st.cache_data.clear()
-            st.rerun()
-        st.divider()
-        st.markdown("**Technical API**")
-        st.link_button("Open FastAPI docs", "http://localhost:8000/docs", width="stretch")
+        st.header("How it works")
+        st.write("1. Upload a CSV")
+        st.write("2. Select a quality profile")
+        st.write("3. Review the verdict")
+        st.write("4. Export accepted or quarantined rows")
+        st.link_button("Open API documentation", f"{settings.data_referee_api_url}/docs")
+
+    source = source_bytes()
+    if not source:
+        st.info("Upload a CSV or use the sample dataset to begin.")
+        return
+    filename, content = source
+    if len(content) > settings.max_upload_size_mb * 1024 * 1024:
+        st.error("This file is larger than the configured 25 MB limit.")
+        return
 
     try:
-        ping_database()
-        summary = get_summary()
-    except SQLAlchemyError as exc:
-        st.error(f"Database is not reachable yet: {exc}")
-        st.stop()
+        preview = pd.read_csv(io.BytesIO(content), nrows=20)
+    except Exception as exc:
+        st.error(f"The CSV could not be parsed: {exc}")
+        return
+    st.subheader("Preview")
+    st.dataframe(preview, width="stretch", hide_index=True)
 
-    render_metric_row(summary)
-
-    quality_by_source = get_quality_by_source()
-    top_issues = get_top_issues()
-    venue_issues = get_venue_issues()
-    artist_duplicates = get_artist_duplicates()
-    artist_search_report = get_artist_search_report()
-    top_markets = get_top_markets()
-    recent_runs = get_recent_runs()
-
-    st.subheader("Data Health by Source")
-    if quality_by_source.empty:
-        st.info("No data loaded yet. Use the sidebar to load the sample CSV.")
-    else:
-        chart_frame = quality_by_source.assign(
-            source_label=quality_by_source["source"].map(friendly_source)
-        )
-        chart_frame = chart_frame.set_index("source_label")[["avg_quality_score", "issue_count"]]
-        chart_frame = chart_frame.rename(
-            columns={
-                "avg_quality_score": "Data Health Score",
-                "issue_count": "Open Issues",
-            }
-        )
-        st.bar_chart(chart_frame)
-        st.dataframe(
-            friendly_frame(
-                quality_by_source,
-                [
-                    "source",
-                    "event_records",
-                    "unique_artists",
-                    "unique_venues",
-                    "avg_quality_score",
-                    "issue_count",
-                    "error_issues",
-                    "warning_issues",
-                ],
-            ),
-            width="stretch",
-            hide_index=True,
-        )
-
-    issue_col, market_col = st.columns(2)
-    with issue_col:
-        st.subheader("Most Common Data Problems")
-        if top_issues.empty:
-            st.info("No issues found.")
-        else:
-            issue_chart = top_issues.assign(
-                issue_label=top_issues["issue_type"].map(friendly_issue)
+    profile_key = st.selectbox(
+        "Quality profile",
+        ["live-events", "generic"],
+        format_func=lambda value: value.replace("-", " ").title(),
+    )
+    mapping: dict[str, str] = {}
+    if profile_key == "live-events":
+        st.markdown("#### Column mapping")
+        available = ["Not mapped", *preview.columns.tolist()]
+        mapping_columns = st.columns(3)
+        for index, field in enumerate(PROFILE_FIELDS):
+            default_index = available.index(field) if field in available else 0
+            selected = mapping_columns[index % 3].selectbox(
+                field.replace("_", " ").title(),
+                available,
+                index=default_index,
+                key=f"mapping-{field}",
             )
-            issue_chart = issue_chart.set_index("issue_label")["issue_count"]
-            issue_chart.name = "Open Issues"
-            st.bar_chart(issue_chart)
-            st.dataframe(friendly_frame(top_issues), width="stretch", hide_index=True)
+            if selected != "Not mapped":
+                mapping[field] = selected
 
-    with market_col:
-        st.subheader("Busiest Markets")
-        if top_markets.empty:
-            st.info("No markets found.")
-        else:
-            market_chart = top_markets.set_index("market")["event_count"]
-            market_chart.name = "Events"
-            st.bar_chart(market_chart)
-            st.dataframe(
-                friendly_frame(
-                    top_markets,
-                    [
-                        "market",
-                        "state",
-                        "event_count",
-                        "unique_artist_count",
-                        "unique_venue_count",
-                        "avg_quality_score",
-                    ],
-                ),
-                width="stretch",
-                hide_index=True,
-            )
+    if st.button("Run Data Referee", type="primary", width="stretch"):
+        try:
+            with st.spinner("Uploading, sealing, and queuing the evaluation..."):
+                analyze(filename, content, profile_key, mapping)
+        except httpx.HTTPStatusError as exc:
+            st.error(f"Data Referee rejected the request: {exc.response.text}")
+            return
+        except httpx.HTTPError as exc:
+            st.error(f"Data Referee API is unavailable: {exc}")
+            return
 
-    st.subheader("Venues Needing Cleanup")
-    if venue_issues.empty:
-        st.success("No venue metadata issues found.")
-    else:
-        st.dataframe(
-            friendly_frame(
-                venue_issues,
-                [
-                    "venue_name",
-                    "city",
-                    "state",
-                    "event_count",
-                    "missing_capacity_events",
-                    "invalid_coordinate_events",
-                    "avg_quality_score",
-                ],
-            ),
-            width="stretch",
-            hide_index=True,
+    run_id = st.session_state.get("quality_run_id")
+    dataset_profile = st.session_state.get("dataset_profile")
+    if dataset_profile:
+        st.divider()
+        st.subheader("Dataset profile")
+        render_profile(dataset_profile)
+    if not run_id:
+        return
+
+    try:
+        with st.spinner("Evaluating records..."):
+            status = poll_run(run_id)
+    except httpx.HTTPError as exc:
+        st.error(f"Could not read evaluation status: {exc}")
+        return
+    st.progress(float(status.get("progress", 0)))
+    st.caption(
+        f"Run {run_id} · {status.get('records_processed', 0):,} / "
+        f"{status.get('records_total', 0):,} records · {status.get('status', 'unknown')}"
+    )
+    if status.get("status") != "completed":
+        if st.button("Refresh evaluation status"):
+            st.rerun()
+        if status.get("last_error"):
+            st.error(status["last_error"])
+        return
+
+    summary = request(
+        "GET", f"/v1/quality-runs/{run_id}/summary", headers=api_headers()
+    ).json()
+    st.divider()
+    render_verdict(summary)
+
+    st.markdown("#### Record results")
+    results = request(
+        "GET",
+        f"/v1/quality-runs/{run_id}/record-results?limit=250",
+        headers=api_headers(),
+    ).json()
+    display_rows = [
+        {
+            "Record": item["external_record_id"],
+            "Score": item["score"],
+            "Classification": item["classification"].title(),
+            "Warnings": item["warning_count"],
+            "Errors": item["error_count"],
+        }
+        for item in results["items"]
+    ]
+    st.dataframe(pd.DataFrame(display_rows), width="stretch", hide_index=True)
+
+    st.markdown("#### Exports")
+    columns = st.columns(3)
+    for column, classification in zip(columns, ["accepted", "quarantined", "rejected"]):
+        export = request(
+            "GET",
+            f"/v1/quality-runs/{run_id}/exports/{classification}.csv",
+            headers=api_headers(),
         )
-
-    st.subheader("Possible Duplicate Artists")
-    if artist_duplicates.empty:
-        st.success("No duplicate artist candidates found.")
-    else:
-        st.dataframe(
-            friendly_frame(
-                artist_duplicates,
-                [
-                    "canonical_artist_name",
-                    "event_count",
-                    "duplicate_record_count",
-                    "sources",
-                    "avg_quality_score",
-                ],
-            ),
+        column.download_button(
+            f"Download {classification}",
+            export.content,
+            file_name=f"{classification}-{run_id}.csv",
+            mime="text/csv",
             width="stretch",
-            hide_index=True,
-        )
-
-    st.subheader("Artist Search Results")
-    if artist_search_report.empty:
-        st.info("No artist search pulls found.")
-    else:
-        artist_chart = artist_search_report.set_index("searched_artist")["loaded_events"]
-        artist_chart.name = "Events Found"
-        st.bar_chart(artist_chart)
-        st.dataframe(friendly_frame(artist_search_report), width="stretch", hide_index=True)
-
-    st.subheader("Recent Data Pulls")
-    if recent_runs.empty:
-        st.info("No ingestion runs recorded yet.")
-    else:
-        st.dataframe(
-            friendly_frame(
-                recent_runs,
-                [
-                    "source_name",
-                    "status",
-                    "started_at",
-                    "finished_at",
-                    "records_seen",
-                    "records_loaded",
-                    "issue_count",
-                ],
-            ),
-            width="stretch",
-            hide_index=True,
         )
 
 
 if __name__ == "__main__":
-    render_dashboard()
+    main()

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://data-referee.dev/contracts/quality-record-result.schema.json",
+  "title": "QualityRecordResultPage",
+  "type": "object",
+  "required": ["items", "next_cursor"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "external_record_id",
+          "score",
+          "classification",
+          "warning_count",
+          "error_count",
+          "issues"
+        ],
+        "properties": {
+          "external_record_id": {"type": "string"},
+          "score": {"type": "integer", "minimum": 0, "maximum": 100},
+          "classification": {"enum": ["accepted", "quarantined", "rejected"]},
+          "warning_count": {"type": "integer", "minimum": 0},
+          "error_count": {"type": "integer", "minimum": 0},
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["rule_id", "severity", "action"],
+              "properties": {
+                "rule_id": {"type": "string"},
+                "severity": {"enum": ["info", "warning", "error", "critical"]},
+                "action": {"enum": ["allow", "quarantine", "reject"]}
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "next_cursor": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

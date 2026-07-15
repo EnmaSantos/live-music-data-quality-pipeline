@@ -7,9 +7,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "Live Music Data Quality Pipeline"
-    database_url: str = "postgresql+psycopg://live_music:live_music@localhost:5432/live_music"
+    app_name: str = "Data Referee"
+    database_url: str = "postgresql+psycopg://data_referee:data_referee@localhost:5432/data_referee"
     api_default_limit: int = 50
+    data_referee_api_key: str = "local-development-key"
+    data_referee_api_url: str = "http://localhost:8000"
+    data_referee_client_id: str = "public-ui"
+    max_upload_size_mb: int = 25
+    max_upload_rows: int = 250000
 
     @field_validator("database_url", mode="before")
     @classmethod

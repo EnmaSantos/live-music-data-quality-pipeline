@@ -6,7 +6,10 @@ from app.initialize import initialize
 
 
 def command_for_service(service_name: str, port: str) -> list[str]:
-    if "dashboard" in service_name.lower():
+    normalized = service_name.lower()
+    if "worker" in normalized:
+        return ["python", "-m", "app.worker"]
+    if "app" in normalized or "dashboard" in normalized:
         return [
             "streamlit",
             "run",
