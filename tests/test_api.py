@@ -1,6 +1,12 @@
 from fastapi.testclient import TestClient
 
 import app.main as main
+from app.config import Settings
+
+
+def test_render_database_url_uses_installed_psycopg_driver() -> None:
+    settings = Settings(database_url="postgresql://user:pass@db.example/live_music")
+    assert settings.database_url == "postgresql+psycopg://user:pass@db.example/live_music"
 
 
 def test_health_endpoint_reports_ok(monkeypatch) -> None:
