@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://data-referee.dev/contracts/quality-run-summary.schema.json",
+  "title": "QualityRunSummary",
+  "type": "object",
+  "required": [
+    "quality_run_id",
+    "profile_key",
+    "profile_version",
+    "input_record_count",
+    "input_hash",
+    "evaluation_hash",
+    "overall_score",
+    "verdict",
+    "dimension_scores",
+    "classification_counts",
+    "blocked_use_cases",
+    "created_at"
+  ],
+  "properties": {
+    "quality_run_id": {"type": "string"},
+    "profile_key": {"type": "string"},
+    "profile_version": {"type": "string"},
+    "input_record_count": {"type": "integer", "minimum": 0},
+    "input_hash": {"type": "string"},
+    "evaluation_hash": {"type": "string"},
+    "overall_score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "verdict": {"type": ["string", "null"]},
+    "dimension_scores": {"type": "object", "additionalProperties": {"type": "number"}},
+    "classification_counts": {
+      "type": "object",
+      "required": ["accepted", "quarantined", "rejected"],
+      "properties": {
+        "accepted": {"type": "integer", "minimum": 0},
+        "quarantined": {"type": "integer", "minimum": 0},
+        "rejected": {"type": "integer", "minimum": 0}
+      }
+    },
+    "blocked_use_cases": {"type": "array", "items": {"type": "string"}},
+    "use_case_eligibility": {"type": "object", "additionalProperties": {"type": "string"}},
+    "created_at": {"type": "string"},
+    "completed_at": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

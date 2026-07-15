@@ -16,5 +16,7 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
+      - name: Verify OpenAPI contract
+        run: python scripts/export_openapi.py --check
       - name: Test
         run: pytest
